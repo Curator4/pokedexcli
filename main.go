@@ -5,19 +5,22 @@ import (
 	"strings"
 	"os"
 	"bufio"
+	"time"
 
 	"github.com/curator4/pokedexcli/internal/api"
+	"github.com/curator4/pokedexcli/internal/pokecache"
 )
 
 type Config struct {
 	LocationAreaNext string
 	LocationAreaPrev string
+	Cache pokecache.Cache
 }
 
 type cliCommand struct {
 	name string
 	description string
-	callback func(*Config) error
+	callback func(*Config, []string) error
 }
 
 var commands map[string]cliCommand
@@ -26,6 +29,7 @@ var cfg Config
 
 func main () {
 	initCommands()
+	cfg.Cache = pokecache.NewCache(10 * time.Second)
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -34,18 +38,20 @@ func main () {
 		scanner.Scan()
 		rawInput := scanner.Text()
 		input := cleanInput(rawInput)
-		command := input[0]
-		
 
+		command := input[0]
+		var args []string
+		if len(input) > 1 {
+			args = input[1:]
+		}
 		
-		cliCommand, ok := commands[command]
-		if ok {
-			err := cliCommand.callback(&cfg)
+		if cliCommand, ok := commands[command]; ok {
+			err := cliCommand.callback(&cfg, args)
 			if err != nil {
-				fmt.Printf("error: %v", err)
+				fmt.Println("Error:", err)
 			}
 		} else {
-			fmt.Print("Unknown command\n\n")
+			fmt.Println("Unknown command")
 		}
 	}
 }
@@ -83,16 +89,21 @@ func initCommands() {
 			description: "Displays previous page of location areas",
 			callback: commandMapB,
 		},
+		"explore": {
+			name: "explore",
+			description: "Shows pokemon in area",
+			callback: commandExplore,
+		},
 	}
 }
 
-func commandExit(cfg *Config) error {
+func commandExit(cfg *Config, args []string) error {
 	fmt.Print("Closing the Pokedex... Goodbye!")
 	os.Exit(0)
 	return nil
 }
 
-func commandHelp(cfg *Config) error {
+func commandHelp(cfg *Config, args []string) error {
 	fmt.Print("Welcome to the Pokedex!\n\n")
 	fmt.Print("Usage:\n")
 	
@@ -103,12 +114,12 @@ func commandHelp(cfg *Config) error {
 	return nil
 }
 
-func commandMap(cfg *Config) error {
+func commandMap(cfg *Config, args []string) error {
 	if cfg.LocationAreaNext == "" {
 		cfg.LocationAreaNext = "https://pokeapi.co/api/v2/location-area/?limit=20" 
 	}
 
-	page, err := api.GetPage[api.LocationArea](cfg.LocationAreaNext)
+	page, err := api.GetPage[api.LocationArea](cfg.LocationAreaNext, &cfg.Cache)
 	if err != nil {
 		fmt.Printf("Error getting Location Areas: %v", err)
 	}
@@ -124,13 +135,13 @@ func commandMap(cfg *Config) error {
 	return nil
 }
 
-func commandMapB(cfg *Config) error {
+func commandMapB(cfg *Config, args []string) error {
 	if cfg.LocationAreaPrev == "" {
 		fmt.Printf("\nyou're on the first page\n")
 		return nil
 	}
 
-	page, err := api.GetPage[api.LocationArea](cfg.LocationAreaPrev)
+	page, err := api.GetPage[api.LocationArea](cfg.LocationAreaPrev, &cfg.Cache)
 	if err != nil {
 		fmt.Printf("Error getting Location Areas: %v", err)
 	}
@@ -143,5 +154,23 @@ func commandMapB(cfg *Config) error {
 	}
 	fmt.Printf("\n")
 
+	return nil
+}
+
+func commandExplore(cfg *Config, args []string) error {
+	area := args[0]
+	areaData, err := api.GetAreaPokemon(area, &cfg.Cache)
+	if err != nil {
+		return fmt.Errorf("failed to get area data: %w", err)
+	}
+
+
+	fmt.Print("\n")
+	fmt.Printf("Exploring %s\n", area)
+	fmt.Print("Found Pokemon:\n")
+	for _, encounter := range areaData.Pokemon_encounters {
+		fmt.Printf(" - %s\n", encounter.Pokemon.Name)
+	}
+	fmt.Print("\n")
 	return nil
 }

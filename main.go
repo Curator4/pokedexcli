@@ -6,6 +6,7 @@ import (
 	"os"
 	"bufio"
 	"time"
+	"math/rand"
 
 	"github.com/curator4/pokedexcli/internal/api"
 	"github.com/curator4/pokedexcli/internal/pokecache"
@@ -15,6 +16,7 @@ type Config struct {
 	LocationAreaNext string
 	LocationAreaPrev string
 	Cache pokecache.Cache
+	Pokedex map[string]api.Pokemon
 }
 
 type cliCommand struct {
@@ -29,7 +31,11 @@ var cfg Config
 
 func main () {
 	initCommands()
-	cfg.Cache = pokecache.NewCache(10 * time.Second)
+
+	cfg := &Config {
+		Pokedex: make(map[string]api.Pokemon),
+		Cache: pokecache.NewCache(10 * time.Second),
+	}
 
 	scanner := bufio.NewScanner(os.Stdin)
 
@@ -46,7 +52,7 @@ func main () {
 		}
 		
 		if cliCommand, ok := commands[command]; ok {
-			err := cliCommand.callback(&cfg, args)
+			err := cliCommand.callback(cfg, args)
 			if err != nil {
 				fmt.Println("Error:", err)
 			}
@@ -93,6 +99,21 @@ func initCommands() {
 			name: "explore",
 			description: "Shows pokemon in area",
 			callback: commandExplore,
+		},
+		"catch": {
+			name: "catch",
+			description: "Attempt to catch a a pokemon",
+			callback: commandCatch,
+		},
+		"inspect": {
+			name: "inspect",
+			description: "Inspect a caught pokemon",
+			callback: commandInspect,
+		},
+		"pokedex": {
+			name: "pokedex",
+			description: "List caught pokemon",
+			callback: commandPokedex,
 		},
 	}
 }
@@ -164,12 +185,83 @@ func commandExplore(cfg *Config, args []string) error {
 		return fmt.Errorf("failed to get area data: %w", err)
 	}
 
-
 	fmt.Print("\n")
 	fmt.Printf("Exploring %s\n", area)
 	fmt.Print("Found Pokemon:\n")
 	for _, encounter := range areaData.Pokemon_encounters {
 		fmt.Printf(" - %s\n", encounter.Pokemon.Name)
+	}
+	fmt.Print("\n")
+	return nil
+}
+
+func commandCatch(cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("provide a pokemon name")
+	}
+
+	name := args[0]
+	
+	pokemon, err := api.GetPokemon(name, &cfg.Cache)
+	if err != nil {
+		fmt.Errorf("failed to get pokemon data: %w", err)
+	}
+	
+	if pokemon == nil {
+		return fmt.Errorf("pokemon %s not found\n", name)
+	}
+
+	catchRate := 255 / (1 + pokemon.Base_experience / 100)
+
+	fmt.Print("\n")
+	fmt.Printf("Throwing a Pokeball at %s...\n", name)
+
+	if rand.Intn(256) < catchRate {
+		fmt.Printf("%s was caugth!\n", name)
+		fmt.Printf("You may now inspect it with the inspect command.\n\n")
+		cfg.Pokedex[name] = *pokemon
+	} else {
+		fmt.Printf("%s escaped!\n\n", name)
+	}
+
+	return nil
+}
+
+func commandInspect(cfg *Config, args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("provide a pokemon name")
+	}
+
+	name := args[0]
+
+	pokemon, ok := cfg.Pokedex[name]
+	if !ok {
+		fmt.Print("\nyou have not caught that pokemon\n\n")
+		return nil
+	}
+
+	fmt.Printf("\n")
+	fmt.Printf("Name: %s\n", pokemon.Name)
+	fmt.Printf("Height: %d\n", pokemon.Height)
+	fmt.Printf("Weight: %d\n", pokemon.Weight)
+	fmt.Printf("Stats:\n")
+	for _, pokemonStat := range pokemon.Stats {
+		fmt.Printf("    -%s: %d\n", pokemonStat.Stat.Name, pokemonStat.Base_stat)
+	}
+	fmt.Printf("Types:\n")
+	for _, pokemonType := range pokemon.Types {
+		fmt.Printf("    - %s\n", pokemonType.Type.Name)
+	}
+	fmt.Printf("\n")
+
+	return nil
+}
+
+func commandPokedex(cfg *Config, args []string) error {
+	fmt.print("\n")
+	fmt.Print("Your Pokedex:\n")
+	for _, pokemon := range cfg.Pokedex {
+		fmt.Printf(" - %s\n", pokemon.Name)
 	}
 	fmt.Print("\n")
 	return nil

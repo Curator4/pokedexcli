@@ -258,7 +258,7 @@ func commandInspect(cfg *Config, args []string) error {
 }
 
 func commandPokedex(cfg *Config, args []string) error {
-	fmt.print("\n")
+	fmt.Print("\n")
 	fmt.Print("Your Pokedex:\n")
 	for _, pokemon := range cfg.Pokedex {
 		fmt.Printf(" - %s\n", pokemon.Name)
